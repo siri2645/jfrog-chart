@@ -1,0 +1,3 @@
+before updatedSourceSecret=\$(jq --arg jdbcConnectionString "\${jdbcConnectionString}" '.jdbcConnectionString = \$jdbcConnectionString' <<< "\${sourceSecret}")
+
+after updatedSourceSecret=\$(echo "\${sourcesecret}" | jq --arg jdbcConnectionString "\${jdbcConnectionString}" '.jdbcConnectionString = \$jdbcConnectionString')
