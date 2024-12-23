@@ -1,0 +1,90 @@
+pipeline {
+    agent any
+
+    environment {
+        SOURCE_SECRET_NAME = ''
+        DESTINATION_SECRET_NAME = ''
+        AWS_REGION = 'us-east-1'
+        AWS_CREDENTIALS_ID = ''
+        LOG_FILE = 'manageSecrets.log'
+        RDS_IDENTIFIER = ''
+        DATABASE_NAME = '' 
+        PORT = '5432' 
+    }
+
+    stages {
+        stage('Manage Secrets') {
+            steps {
+                script {
+                    // Define the shell script commands
+                    def manageSecretsScript = """
+                        #!/bin/bash
+                        
+                        # Fetch the RDS database endpoint
+                        rdsEndpoint=\$(aws rds describe-db-instances --db-instance-identifier "${RDS_IDENTIFIER}" --query "DBInstances[0].Endpoint.Address" --output text --region "${AWS_REGION}")
+                        
+                        if [ -z "\${rdsEndpoint}" ]; then
+                            echo "Error: Unable to fetch RDS endpoint. Exiting."
+                            exit 1
+                        fi
+                        
+                        echo "Fetched RDS Endpoint: \${rdsEndpoint}"
+                        
+                        # Construct the JDBC connection string
+                        jdbcConnectionString="jdbc:postgresql://\${rdsEndpoint}:${PORT}/${DATABASE_NAME}"
+                        echo "Constructed JDBC Connection String: \${jdbcConnectionString}"
+                        
+                        # Fetch the source secret
+                        sourceSecret=\$(aws secretsmanager get-secret-value --secret-id "${SOURCE_SECRET_NAME}" --query SecretString --output text --region "${AWS_REGION}")
+                        
+                        # Update the source secret JSON with the JDBC connection string (modify JSON if needed)
+                        updatedSourceSecret=\$(jq --arg jdbcConnectionString "\${jdbcConnectionString}" '.jdbcConnectionString = \$jdbcConnectionString' <<< "\${sourceSecret}")
+                        
+                        # Fetch the destination secret
+                        destinationSecret=\$(aws secretsmanager get-secret-value --secret-id "${DESTINATION_SECRET_NAME}" --query SecretString --output text --region "${AWS_REGION}")
+                        
+                        # Compare secrets
+                        if [ "\${updatedSourceSecret}" == "\${destinationSecret}" ]; then
+                            echo "Secrets are the same. No update needed."
+                        else
+                            echo "Secrets are different. Updating destination to match the updated source."
+                            aws secretsmanager update-secret --secret-id "${DESTINATION_SECRET_NAME}" --secret-string "\${updatedSourceSecret}" --region "${AWS_REGION}" > /dev/null 2>&1
+                            echo "Secrets were updated to match the updated source."
+                        fi
+                    """
+                    
+                    // Write the script to a file
+                    writeFile file: 'manageSecrets.sh', text: manageSecretsScript
+                    
+                    // Make the script executable
+                    sh 'chmod +x manageSecrets.sh'
+                    
+                    // Execute the script using withAWS credentials and capture output to a log file
+                    withAWS(credentials: "${env.AWS_CREDENTIALS_ID}", region: "${env.AWS_REGION}") {
+                        sh "./manageSecrets.sh > ${env.LOG_FILE} 2>&1"
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            // Archive the log file for future reference
+            archiveArtifacts artifacts: "${env.LOG_FILE}", allowEmptyArchive: true
+            
+            // Print the log file content to the Jenkins console
+            script {
+                def logContent = readFile(env.LOG_FILE)
+                echo "Script log:\n${logContent}"
+            }
+        }
+        
+        success {
+            echo 'Pipeline completed successfully.'
+        }
+        failure {
+            echo 'Pipeline failed.'
+        }
+    }
+}
