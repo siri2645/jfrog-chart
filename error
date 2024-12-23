@@ -1,0 +1,56 @@
+
+[Pipeline] Start of Pipeline
+[Pipeline] node
+Still waiting to schedule task
+Waiting for next available executor on ‘cicd’
+Running on EC2 (AWS CI-CD) - ubuntu (i-0667c1d74ce93456) in /home/ubuntu/workspace/Test/jfrog-test
+[Pipeline] {
+[Pipeline] withEnv
+[Pipeline] {
+[Pipeline] stage
+[Pipeline] { (Manage Secrets)
+[Pipeline] script
+[Pipeline] {
+[Pipeline] writeFile
+[Pipeline] sh
++ chmod +x manageSecrets.sh
+[Pipeline] withAWS
+Retrieving credentials from node.
+Requesting assume role
+Assuming role ARN is arn:aws:iam:::role/ role arn:aws:sts:::assumed-role/EXLDevopsJenkinsCICDNodeCrossAccountRole/Jenkins-Test-jfrog-test-17 with id AROA2ZUEYMX6fguhB7BGW:Jenkins-Test-jfrog-test-17 
+ [Pipeline] {
+[Pipeline] sh
++ ./manageSecrets.sh
+[Pipeline] }
+[Pipeline] // withAWS
+[Pipeline] }
+[Pipeline] // script
+[Pipeline] }
+[Pipeline] // stage
+[Pipeline] stage
+[Pipeline] { (Declarative: Post Actions)
+[Pipeline] archiveArtifacts
+Archiving artifacts
+[Pipeline] script
+[Pipeline] {
+[Pipeline] readFile
+[Pipeline] echo
+Script log:
+Fetched RDS Endpoint: database-1.ghctythjljiu.us-west-2.rds.amazonaws.com
+Constructed JDBC Connection String: jdbc:postgresql://
+./manageSecrets.sh: 22: Syntax error: redirection unexpected
+
+[Pipeline] }
+[Pipeline] // script
+[Pipeline] echo
+Pipeline failed.
+[Pipeline] }
+[Pipeline] // stage
+[Pipeline] }
+[Pipeline] // withEnv
+[Pipeline] }
+[Pipeline] // node
+[Pipeline] End of Pipeline
+ERROR: script returned exit code 2
+/var/lib/jenkins/jobs/Test/workspace/jfrog-test@tmp/jfrog/17/.jfrog deleted
+Finished: FAILURE
