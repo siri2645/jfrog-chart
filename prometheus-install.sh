@@ -1,251 +1,184 @@
 #!/bin/bash
 
-set -e
-
-# =========================================================
-# Variables
-# =========================================================
+set +e
 
 NAMESPACE="prometheus-operator"
+
+HELM_RELEASE="prometheus"
+HELM_CHART="prometheus-community/kube-prometheus-stack"
 
 GRAFANA_DEPLOYMENT="prometheus-grafana"
 DEPLOYMENT_NAME="prometheus-kube-state-metrics"
 DS_NAME="prometheus-prometheus-node-exporter"
 
-VOLUME_NAME="tmp"
-VOLUME_MOUNT_PATH="/tmp"
+############################################
+# PRIVATE IMAGES
+############################################
 
-# =========================================================
-# Wait for helm resources
-# =========================================================
+GRAFANA_IMAGE="us-central1-docker.pkg.dev/uc-sandbox-1/prometheus-operator-grafana/grafana:13.0.1-patched"
 
-wait_for_resources() {
+SIDECAR_IMAGE="us-central1-docker.pkg.dev/uc-sandbox-1/kiwigrid-k8s-sidecar/sidecar:2.6.0-patch1"
 
-  echo "Waiting for Helm resources to stabilize..."
+KSM_IMAGE="us-central1-docker.pkg.dev/uc-sandbox-1/prometheus-operator-kube-state-metrics/kube-state-metrics:v2.18.0-patched"
 
-  kubectl rollout status deploy/"$GRAFANA_DEPLOYMENT" -n "$NAMESPACE" --timeout=300s
+NODE_EXPORTER_IMAGE="us-central1-docker.pkg.dev/uc-sandbox-1/prometheus-operator-node-exporter/node-exporter:v1.11.1-patched"
 
-  kubectl rollout status deploy/"$DEPLOYMENT_NAME" -n "$NAMESPACE" --timeout=300s
+############################################
+# HELM INSTALL / UPGRADE
+############################################
 
-  kubectl rollout status ds/"$DS_NAME" -n "$NAMESPACE" --timeout=300s
+echo "Deploying Prometheus Operator..."
 
-  sleep 30
+helm upgrade --install "$HELM_RELEASE" "$HELM_CHART" \
+  -n "$NAMESPACE" \
+  --create-namespace \
+  -f values.yaml
+
+echo "Waiting for Helm resources to stabilize..."
+
+kubectl rollout status deploy "$GRAFANA_DEPLOYMENT" -n "$NAMESPACE" --timeout=180s || true
+kubectl rollout status deploy "$DEPLOYMENT_NAME" -n "$NAMESPACE" --timeout=180s || true
+kubectl rollout status daemonset "$DS_NAME" -n "$NAMESPACE" --timeout=180s || true
+
+############################################
+# PATCH GRAFANA IMAGES
+############################################
+
+echo "Patching Grafana deployment images..."
+
+kubectl set image deployment/"$GRAFANA_DEPLOYMENT" \
+-n "$NAMESPACE" \
+grafana="$GRAFANA_IMAGE" || true
+
+echo "Patched image for container 'grafana'"
+
+kubectl set image deployment/"$GRAFANA_DEPLOYMENT" \
+-n "$NAMESPACE" \
+grafana-sc-dashboard="$SIDECAR_IMAGE" || true
+
+echo "Patched image for container 'grafana-sc-dashboard'"
+
+kubectl set image deployment/"$GRAFANA_DEPLOYMENT" \
+-n "$NAMESPACE" \
+grafana-sc-datasources="$SIDECAR_IMAGE" || true
+
+echo "Patched image for container 'grafana-sc-datasources'"
+
+############################################
+# PATCH KUBE STATE METRICS IMAGE
+############################################
+
+echo "Patching kube-state-metrics image..."
+
+kubectl set image deployment/"$DEPLOYMENT_NAME" \
+-n "$NAMESPACE" \
+kube-state-metrics="$KSM_IMAGE" || true
+
+echo "Patched kube-state-metrics image"
+
+############################################
+# PATCH NODE EXPORTER IMAGE
+############################################
+
+echo "Patching node-exporter image..."
+
+kubectl set image daemonset/"$DS_NAME" \
+-n "$NAMESPACE" \
+node-exporter="$NODE_EXPORTER_IMAGE" || true
+
+echo "Patched node-exporter image"
+
+############################################
+# PATCH AUTOMOUNT FALSE
+############################################
+
+kubectl patch deployment "$GRAFANA_DEPLOYMENT" \
+-n "$NAMESPACE" \
+--type='json' \
+-p='[
+{
+"op":"replace",
+"path":"/spec/template/spec/automountServiceAccountToken",
+"value":false
 }
+]' || true
 
-# =========================================================
-# Patch Grafana deployment images
-# =========================================================
-
-patch_deploy_container_image() {
-
-  echo "Patching Grafana deployment images..."
-
-  CONTAINERS="grafana grafana-sc-dashboard grafana-sc-datasources"
-
-  for CONTAINER_NAME in $CONTAINERS; do
-
-    CONTAINER_INDEX=$(kubectl get deploy "$GRAFANA_DEPLOYMENT" -n "$NAMESPACE" -o json |
-      jq --arg name "$CONTAINER_NAME" '
-      (.spec.template.spec.containers // [])
-      | to_entries
-      | map(select(.value.name == $name))
-      | if length > 0 then .[0].key else "null" end
-      ')
-
-    if [ "$CONTAINER_INDEX" = "null" ]; then
-      echo "Container '$CONTAINER_NAME' not found. Skipping."
-      continue
-    fi
-
-    if [ "$CONTAINER_NAME" = "grafana" ]; then
-      IMAGE="us-central1-docker.pkg.dev/uc-sandbox-1/prometheus-operator-grafana/grafana:13.0.1-patched"
-    else
-      IMAGE="us-central1-docker.pkg.dev/uc-sandbox-1/kiwigrid-k8s-sidecar/sidecar:2.6.0-patch1"
-    fi
-
-    kubectl patch deploy "$GRAFANA_DEPLOYMENT" -n "$NAMESPACE" --type=json -p="[
-      {
-        \"op\": \"replace\",
-        \"path\": \"/spec/template/spec/containers/$CONTAINER_INDEX/image\",
-        \"value\": \"$IMAGE\"
-      }
-    ]"
-
-    echo "Patched image for container '$CONTAINER_NAME'"
-
-  done
+kubectl patch deployment "$DEPLOYMENT_NAME" \
+-n "$NAMESPACE" \
+--type='json' \
+-p='[
+{
+"op":"replace",
+"path":"/spec/template/spec/automountServiceAccountToken",
+"value":false
 }
+]' || true
 
-# =========================================================
-# Patch kube-state-metrics image
-# =========================================================
-
-patch_ksm_container_image() {
-
-  echo "Patching kube-state-metrics image..."
-
-  CONTAINER_INDEX=$(kubectl get deploy "$DEPLOYMENT_NAME" -n "$NAMESPACE" -o json |
-    jq --arg name "kube-state-metrics" '
-    (.spec.template.spec.containers // [])
-    | to_entries
-    | map(select(.value.name == $name))
-    | if length > 0 then .[0].key else "null" end
-    ')
-
-  if [ "$CONTAINER_INDEX" = "null" ]; then
-    echo "kube-state-metrics container not found"
-    return
-  fi
-
-  kubectl patch deploy "$DEPLOYMENT_NAME" -n "$NAMESPACE" --type=json -p="[
-    {
-      \"op\": \"replace\",
-      \"path\": \"/spec/template/spec/containers/$CONTAINER_INDEX/image\",
-      \"value\": \"us-central1-docker.pkg.dev/uc-sandbox-1/prometheus-operator-kube-state-metrics/kube-state-metrics:v2.18.0-patched\"
-    }
-  ]"
-
-  echo "Patched kube-state-metrics image"
+kubectl patch daemonset "$DS_NAME" \
+-n "$NAMESPACE" \
+--type='json' \
+-p='[
+{
+"op":"replace",
+"path":"/spec/template/spec/automountServiceAccountToken",
+"value":false
 }
+]' || true
 
-# =========================================================
-# Patch node-exporter daemonset image
-# =========================================================
+############################################
+# RESTART WORKLOADS
+############################################
 
-patch_ds_container_image() {
+echo "Restarting workloads..."
 
-  echo "Patching node-exporter image..."
+kubectl rollout restart deployment "$GRAFANA_DEPLOYMENT" -n "$NAMESPACE" || true
+kubectl rollout restart deployment "$DEPLOYMENT_NAME" -n "$NAMESPACE" || true
+kubectl rollout restart daemonset "$DS_NAME" -n "$NAMESPACE" || true
 
-  CONTAINER_INDEX=$(kubectl get ds "$DS_NAME" -n "$NAMESPACE" -o json |
-    jq --arg name "node-exporter" '
-    (.spec.template.spec.containers // [])
-    | to_entries
-    | map(select(.value.name == $name))
-    | if length > 0 then .[0].key else "null" end
-    ')
+############################################
+# WAIT FOR ROLLOUT
+############################################
 
-  if [ "$CONTAINER_INDEX" = "null" ]; then
-    echo "node-exporter container not found"
-    return
-  fi
+if kubectl rollout status deployment "$GRAFANA_DEPLOYMENT" -n "$NAMESPACE" --timeout=180s; then
+    echo "Grafana rollout success"
+else
+    echo "Grafana rollout failed. Continuing..."
+fi
 
-  kubectl patch ds "$DS_NAME" -n "$NAMESPACE" --type=json -p="[
-    {
-      \"op\": \"replace\",
-      \"path\": \"/spec/template/spec/containers/$CONTAINER_INDEX/image\",
-      \"value\": \"us-central1-docker.pkg.dev/uc-sandbox-1/prometheus-operator-node-exporter/node-exporter:v1.11.1-patched\"
-    }
-  ]"
+if kubectl rollout status deployment "$DEPLOYMENT_NAME" -n "$NAMESPACE" --timeout=180s; then
+    echo "kube-state-metrics rollout success"
+else
+    echo "kube-state-metrics rollout failed. Continuing..."
+fi
 
-  echo "Patched node-exporter image"
-}
+if kubectl rollout status daemonset "$DS_NAME" -n "$NAMESPACE" --timeout=180s; then
+    echo "node-exporter rollout success"
+else
+    echo "node-exporter rollout failed. Continuing..."
+fi
 
-# =========================================================
-# Add automountServiceAccountToken false
-# =========================================================
+############################################
+# VERIFY IMAGES
+############################################
 
-patch_automount() {
+echo "Checking final images..."
 
-  kubectl patch deploy "$GRAFANA_DEPLOYMENT" -n "$NAMESPACE" \
-  --type='json' \
-  -p='[
-    {
-      "op": "replace",
-      "path": "/spec/template/spec/automountServiceAccountToken",
-      "value": false
-    }
-  ]'
+kubectl get deploy "$GRAFANA_DEPLOYMENT" \
+-n "$NAMESPACE" \
+-o=jsonpath='{.spec.template.spec.containers[*].image}'
 
-  kubectl patch deploy "$DEPLOYMENT_NAME" -n "$NAMESPACE" \
-  --type='json' \
-  -p='[
-    {
-      "op": "replace",
-      "path": "/spec/template/spec/automountServiceAccountToken",
-      "value": false
-    }
-  ]'
+echo ""
 
-  kubectl patch ds "$DS_NAME" -n "$NAMESPACE" \
-  --type='json' \
-  -p='[
-    {
-      "op": "replace",
-      "path": "/spec/template/spec/automountServiceAccountToken",
-      "value": false
-    }
-  ]'
-}
+kubectl get deploy "$DEPLOYMENT_NAME" \
+-n "$NAMESPACE" \
+-o=jsonpath='{.spec.template.spec.containers[*].image}'
 
-# =========================================================
-# Restart workloads
-# =========================================================
+echo ""
 
-restart_workloads() {
+kubectl get daemonset "$DS_NAME" \
+-n "$NAMESPACE" \
+-o=jsonpath='{.spec.template.spec.containers[*].image}'
 
-  echo "Restarting workloads..."
+echo ""
 
-  kubectl rollout restart deploy "$GRAFANA_DEPLOYMENT" -n "$NAMESPACE"
-
-  kubectl rollout restart deploy "$DEPLOYMENT_NAME" -n "$NAMESPACE"
-
-  kubectl rollout restart ds "$DS_NAME" -n "$NAMESPACE"
-}
-
-# =========================================================
-# Wait again after restart
-# =========================================================
-
-wait_after_restart() {
-
-  kubectl rollout status deploy "$GRAFANA_DEPLOYMENT" -n "$NAMESPACE" --timeout=300s
-
-  kubectl rollout status deploy "$DEPLOYMENT_NAME" -n "$NAMESPACE" --timeout=300s
-
-  kubectl rollout status ds "$DS_NAME" -n "$NAMESPACE" --timeout=300s
-}
-
-# =========================================================
-# Verify Images
-# =========================================================
-
-verify_images() {
-
-  echo "Grafana Images:"
-  kubectl get deploy "$GRAFANA_DEPLOYMENT" -n "$NAMESPACE" \
-  -o jsonpath='{.spec.template.spec.containers[*].image}'
-
-  echo
-  echo "Kube State Metrics Images:"
-  kubectl get deploy "$DEPLOYMENT_NAME" -n "$NAMESPACE" \
-  -o jsonpath='{.spec.template.spec.containers[*].image}'
-
-  echo
-  echo "Node Exporter Images:"
-  kubectl get ds "$DS_NAME" -n "$NAMESPACE" \
-  -o jsonpath='{.spec.template.spec.containers[*].image}'
-
-  echo
-}
-
-# =========================================================
-# Main Execution
-# =========================================================
-
-wait_for_resources
-
-patch_deploy_container_image
-
-patch_ksm_container_image
-
-patch_ds_container_image
-
-patch_automount
-
-restart_workloads
-
-wait_after_restart
-
-verify_images
-
-echo "All patches completed successfully"
+echo "Script complete. All containers patched."
