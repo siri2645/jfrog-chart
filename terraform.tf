@@ -1,37 +1,14 @@
-resource "google_compute_security_policy" "cloud_armor" {
-  project     = var.project_id
-  name        = var.name
-  description = var.description
-  type        = var.type
+output "security_policy_id" {
+  description = "ID of the Cloud Armor security policy."
+  value       = google_compute_security_policy.cloud_armor.id
+}
 
-  dynamic "rule" {
-    for_each = var.rules
+output "security_policy_name" {
+  description = "Name of the Cloud Armor security policy."
+  value       = google_compute_security_policy.cloud_armor.name
+}
 
-    content {
-      priority    = rule.value.priority
-      action      = rule.value.action
-      description = rule.value.description
-      preview     = rule.value.preview
-
-      match {
-        versioned_expr = rule.value.src_ip_ranges != null ? "SRC_IPS_V1" : null
-
-        dynamic "config" {
-          for_each = rule.value.src_ip_ranges != null ? [rule.value.src_ip_ranges] : []
-
-          content {
-            src_ip_ranges = config.value
-          }
-        }
-
-        dynamic "expr" {
-          for_each = rule.value.expression != null ? [rule.value.expression] : []
-
-          content {
-            expression = expr.value
-          }
-        }
-      }
-    }
-  }
+output "security_policy_self_link" {
+  description = "Self link of the Cloud Armor security policy."
+  value       = google_compute_security_policy.cloud_armor.self_link
 }
