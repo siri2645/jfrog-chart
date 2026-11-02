@@ -1,10 +1,12 @@
-module "cloud_armor" {
-  source = "../"
+variable "rules" {
+  description = "Cloud Armor security policy rules"
 
-  project_id = "your-gcp-project-id"
-  name       = "sandbox-cloud-armor"
-
-  description = "Cloud Armor security policy for sandbox"
-
-  rules = var.rules
+  type = list(object({
+    priority      = number
+    action        = string
+    description   = optional(string, "")
+    preview       = optional(bool, false)
+    src_ip_ranges = optional(list(string))
+    expression    = optional(string)
+  }))
 }
