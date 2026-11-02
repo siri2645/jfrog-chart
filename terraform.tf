@@ -1,15 +1,21 @@
 variable "project_id" {
-  description = "GCP project ID for testing."
+  description = "GCP project ID."
   type        = string
 }
 
-variable "cloud_armor_name" {
-  description = "Name of the Cloud Armor policy."
+variable "name" {
+  description = "Name of the Cloud Armor security policy."
   type        = string
+}
+
+variable "description" {
+  description = "Description of the Cloud Armor security policy."
+  type        = string
+  default     = "Managed by Terraform"
 }
 
 variable "rules" {
-  description = "Cloud Armor rules used for testing."
+  description = "Cloud Armor security policy rules."
 
   type = list(object({
     priority      = number
@@ -19,26 +25,21 @@ variable "rules" {
     src_ip_ranges = optional(list(string))
     expression    = optional(string)
   }))
-}
 
-module "cloud_armor" {
-  source = "../"
+  validation {
+    condition = alltrue([
+      for rule in var.rules :
+      (rule.src_ip_ranges != null) != (rule.expression != null)
+    ])
 
-  project_id  = var.project_id
-  name        = var.cloud_armor_name
-  description = "Cloud Armor security policy managed through Terraform"
-  type        = "CLOUD_ARMOR"
-  rules       = var.rules
-}
+    error_message = "Each rule must define exactly one of src_ip_ranges or expression."
+  }
 
-output "security_policy_id" {
-  value = module.cloud_armor.security_policy_id
-}
+  validation {
+    condition = length(distinct([
+      for rule in var.rules : rule.priority
+    ])) == length(var.rules)
 
-output "security_policy_name" {
-  value = module.cloud_armor.security_policy_name
-}
-
-output "security_policy_self_link" {
-  value = module.cloud_armor.security_policy_self_link
+    error_message = "Rule priorities must be unique."
+  }
 }
