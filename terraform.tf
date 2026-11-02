@@ -1,50 +1,62 @@
 
-resource "google_compute_security_policy" "cloud_armor" {
+variable "project_id" {
+  description = "GCP project ID"
+  type        = string
+}
 
-  project     = var.project_id
-  name        = var.name
-  description = var.description
-  type        = "CLOUD_ARMOR"
+variable "name" {
+  description = "Cloud Armor security policy name"
+  type        = string
+}
 
-  dynamic "rule" {
-    for_each = var.rules
+variable "description" {
+  description = "Cloud Armor security policy description"
+  type        = string
+  default     = "Cloud Armor security policy"
+}
 
-    content {
-      priority    = rule.value.priority
-      action      = rule.value.action
-      description = rule.value.description
-      preview     = rule.value.preview
+variable "rules" {
+  description = "List of Cloud Armor security policy rules"
 
-      match {
+  type = list(object({
+    priority      = number
+    action        = string
+    description   = optional(string, "")
+    preview       = optional(bool, false)
+    src_ip_ranges = optional(list(string))
+    expression    = optional(string)
+  }))
 
-        versioned_expr = (
-          try(rule.value.src_ip_ranges, null) != null
-          ? "SRC_IPS_V1"
-          : null
-        )
+  validation {
+    condition = alltrue([
+      for rule in var.rules :
+      (
+        (rule.src_ip_ranges != null && rule.expression == null) ||
+        (rule.src_ip_ranges == null && rule.expression != null)
+      )
+    ])
 
-        dynamic "config" {
-          for_each = (
-            try(rule.value.src_ip_ranges, null) != null
-            ? [1] : []
-          )
+    error_message = "Each rule must contain either src_ip_ranges or expression."
+  }
 
-          content {
-            src_ip_ranges = rule.value.src_ip_ranges
-          }
-        }
+  validation {
+    condition = (
+      length(distinct([for rule in var.rules : rule.priority])) ==
+      length(var.rules)
+    )
 
-        dynamic "expr" {
-          for_each = (
-            try(rule.value.expression, null) != null
-            ? [1] : []
-          )
+    error_message = "Rule priorities must be unique."
+  }
 
-          content {
-            expression = rule.value.expression
-          }
-        }
-      }
-    }
+  validation {
+    condition = alltrue([
+      for rule in var.rules :
+      contains(
+        ["allow", "deny(403)", "deny(404)", "deny(502)"],
+        rule.action
+      )
+    ])
+
+    error_message = "Unsupported action. Use allow, deny(403), deny(404), or deny(502)."
   }
 }
