@@ -1,32 +1,23 @@
-project_id       = "YOUR_GCP_PROJECT_ID"
-cloud_armor_name = "sandbox-cloud-armor"
+module "cloud_armor" {
+  source = "../"
 
-rules = [
-  {
-    priority    = 1000
-    action      = "deny(403)"
-    description = "Block SQL injection attacks"
+  project_id  = "YOUR_GCP_PROJECT_ID"
+  name        = "application-cloud-armor"
+  description = "Cloud Armor policy for application protection"
 
-    expression = "evaluatePreconfiguredWaf('sqli-v33-stable')"
-  },
-  {
-    priority    = 1100
-    action      = "deny(403)"
-    description = "Block XSS attacks"
-    preview     = true
+  rules = [
+    {
+      priority    = 1000
+      action      = "deny(403)"
+      description = "Block SQL injection"
 
-    expression = "evaluatePreconfiguredWaf('xss-v33-stable')"
-  },
-  {
-    priority      = 1200
-    action        = "deny(403)"
-    description   = "Block specified IP address"
-    src_ip_ranges = ["192.0.2.10/32"]
-  },
-  {
-    priority      = 2147483647
-    action        = "allow"
-    description   = "Default allow rule"
-    src_ip_ranges = ["*"]
-  }
-]
+      expression = "evaluatePreconfiguredWaf('sqli-v33-stable')"
+    },
+    {
+      priority      = 2147483647
+      action        = "allow"
+      description   = "Default allow rule"
+      src_ip_ranges = ["*"]
+    }
+  ]
+}
