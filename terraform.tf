@@ -1,13 +1,10 @@
-
 module "cloud_armor" {
-
   source = "../"
 
-  project_id = var.project_id
+  project_id = "your-gcp-project-id"
+  name       = "sandbox-cloud-armor"
 
-  name = "sandbox-cloud-armor"
-
-  description = "Cloud Armor security policy for sandbox environment"
+  description = "Cloud Armor security policy for sandbox"
 
   rules = var.rules
 }
