@@ -1,35 +1,40 @@
 # GCP Cloud Armor Terraform Module
 
-## Overview
+Terraform module to create and manage Google Cloud Armor security policies.
 
-This Terraform module creates and manages Google Cloud Armor security policies.
+## Requirements
 
-## Features
-
-- Create Cloud Armor security policies.
-- Configure custom security rules.
-- Allow or deny traffic based on source IP ranges.
-- Configure WAF rules using CEL expressions.
-- Support preview mode.
-- Configure rule priorities and actions.
-
-## Policy Type
-
-CLOUD_ARMOR
-
-## Inputs
-
-- project_id
-- name
-- description
-- rules
-
-## Outputs
-
-- security_policy_id
-- security_policy_name
-- security_policy_self_link
+- Terraform >= 1.5.0
+- Google Terraform Provider >= 6.0.0 and < 8.0.0
+- Compute Security Policies API enabled in GCP.
 
 ## Usage
 
-Refer to sample.tf for module usage.
+Refer to docs/sample.tf for module usage.
+
+## Inputs
+
+| Name | Description | Required |
+|---|---|---|
+| project_id | GCP project ID | Yes |
+| name | Cloud Armor policy name | Yes |
+| description | Policy description | No |
+| rules | Security policy rules | Yes |
+
+## Outputs
+
+| Name | Description |
+|---|---|
+| security_policy_id | Security policy ID |
+| security_policy_name | Security policy name |
+| security_policy_self_link | Security policy self link |
+
+## Testing
+
+Run the following commands from the test directory:
+
+terraform init
+terraform fmt -recursive
+terraform validate
+terraform plan
+terraform apply
