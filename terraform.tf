@@ -1,40 +1,87 @@
-# GCP Cloud Armor Terraform Module
+variable "project_id" {
+  description = "GCP project ID."
+  type        = string
+}
 
-Terraform module to create and manage Google Cloud Armor security policies.
+variable "security_policy_name" {
+  description = "Name of the Cloud Armor security policy."
+  type        = string
+}
 
-## Requirements
+variable "description" {
+  description = "Description of the Cloud Armor security policy."
+  type        = string
+  default     = "Managed by Terraform"
+}
 
-- Terraform >= 1.5.0
-- Google Terraform Provider >= 6.0.0 and < 8.0.0
-- Compute Security Policies API enabled in GCP.
+# Cloud Armor security policy type
+variable "security_policy_type" {
+  description = "Type of the Cloud Armor security policy."
+  type        = string
+  default     = "CLOUD_ARMOR"
 
-## Usage
+  validation {
+    condition = contains([
+      "CLOUD_ARMOR",
+      "CLOUD_ARMOR_EDGE",
+      "CLOUD_ARMOR_INTERNAL_SERVICE"
+    ], var.security_policy_type)
 
-Refer to docs/sample.tf for module usage.
+    error_message = "Valid types are CLOUD_ARMOR, CLOUD_ARMOR_EDGE, or CLOUD_ARMOR_INTERNAL_SERVICE."
+  }
+}
 
-## Inputs
+# Deletion policy
+variable "deletion_policy" {
+  description = "Deletion behavior of the Cloud Armor security policy."
+  type        = string
+  default     = "DELETE"
 
-| Name | Description | Required |
-|---|---|---|
-| project_id | GCP project ID | Yes |
-| name | Cloud Armor policy name | Yes |
-| description | Policy description | No |
-| rules | Security policy rules | Yes |
+  validation {
+    condition = contains([
+      "DELETE",
+      "PREVENT",
+      "ABANDON"
+    ], var.deletion_policy)
 
-## Outputs
+    error_message = "Valid deletion policies are DELETE, PREVENT, or ABANDON."
+  }
+}
 
-| Name | Description |
-|---|---|
-| security_policy_id | Security policy ID |
-| security_policy_name | Security policy name |
-| security_policy_self_link | Security policy self link |
+# Labels
+variable "labels" {
+  description = "Labels to apply to the Cloud Armor security policy."
+  type        = map(string)
+  default     = {}
+}
 
-## Testing
+# Existing rules variable
+variable "rules" {
+  description = "Cloud Armor security policy rules."
 
-Run the following commands from the test directory:
+  type = list(object({
+    priority     = number
+    action       = string
+    description  = optional(string, "")
+    preview      = optional(bool, false)
+    src_ip_ranges = optional(list(string))
+    expression   = optional(string)
+  }))
 
-terraform init
-terraform fmt -recursive
-terraform validate
-terraform plan
-terraform apply
+  validation {
+    condition = alltrue([
+      for rule in var.rules :
+      (rule.src_ip_ranges != null) != (rule.expression != null)
+    ])
+
+    error_message = "Each rule must define exactly one of src_ip_ranges or expression."
+  }
+
+  validation {
+    condition = length(distinct([
+      for rule in var.rules : rule.priority
+    ])) == length(var.rules)
+
+    error_message = "Rule priorities must be unique."
+  }
+}
